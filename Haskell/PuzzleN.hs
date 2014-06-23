@@ -24,7 +24,7 @@ data Direction = North | East | South | West
 
 -- | The game state inludes the board, the number of moves up until this
 --   point and a previous state (unless this it the start state). We
---   also cache the dimiension of the board, the location of the blank
+--   also cache the dimension of the board, the location of the blank
 --   tile and the manhattan distance to the goal state.
 data Puzzle = Puzzle 
   { board     :: Board
@@ -49,10 +49,10 @@ v2m n i = (i `div` n, i `mod` n)
 
 -- Get the dimension of a board.
 size :: Board -> Int
-size b = round .sqrt . fromIntegral . V.length $ b
+size b = round . sqrt . fromIntegral . V.length $ b
 
--- | Manhattan distance of a tile with value v at position (i, j).
---   For a game of dimension n.
+-- | Manhattan distance of a tile with value v at position (i, j),
+--   for a game of dimension n.
 distance :: Int -> Int -> Int -> Int  -> Int
 distance v n i j = if v == 0 then 0 else rdist + cdist
   where
@@ -86,6 +86,9 @@ update p i j = p { board = b
     b' = board p
     n = dim p
 
+-- | Find the the board that can be reached from the current state 
+--   by moving in the specified direction, being careful not to 
+--   move off the board.
 neighbor :: Puzzle -> Direction -> Maybe Puzzle
 neighbor p dir = case dir of
   North -> if i <= 0   then Nothing else Just $ update p (i-1) j
@@ -96,28 +99,32 @@ neighbor p dir = case dir of
     (i, j) = v2m n (blank p)
     n = dim p
 
+-- | All of the states that can be reached in one move from the
+--   current state.
 neighbors :: Puzzle -> [Puzzle]
 neighbors p = mapMaybe (neighbor p) [North, East, South, West]
 
-solve :: Frontier -> Puzzle
-solve fr = if dist puzzle == 0 
-           then puzzle 
-           else solve fr2
+solve :: Puzzle -> Puzzle
+solve p = solve' (PQ.fromList [(dist p, p)])
   where
-    -- Retrieve the game state with the lowest priority and remove it from
-    -- the frontier.
-    ((_, puzzle), fr1) = PQ.deleteFindMin fr
+    solve' fr = if dist puzzle == 0 
+              then puzzle 
+              else solve' fr2
+      where
+        -- Retrieve the game state with the lowest priority and remove it from
+        -- the frontier.
+        ((_, puzzle), fr1) = PQ.deleteFindMin fr
 
-    -- If the new board is the smae as the previous board then
-    -- do not add it to the queue since it has already been explored.
-    ns = case previous puzzle of
-      Nothing -> neighbors puzzle
-      Just n  -> filter (\x -> board x /= board n) (neighbors puzzle)
+        -- If the new board is the smae as the previous board then
+        -- do not add it to the queue since it has already been explored.
+        ns = case previous puzzle of
+          Nothing -> neighbors puzzle
+          Just n  -> filter (\x -> board x /= board n) (neighbors puzzle)
 
-    -- The priority of a puzzle is the number of moves so far
-    -- plus the manhattan distance.
-    ps = zip [moves p + dist p | p <- ns] ns
-    fr2 = foldr (uncurry PQ.insert) fr1 ps
+        -- The priority of a puzzle is the number of moves so far
+        -- plus the manhattan distance.
+        ps = zip [moves p + dist p | p <- ns] ns
+        fr2 = foldr (uncurry PQ.insert) fr1 ps
 
 main = do
   args <- getArgs
@@ -128,7 +135,7 @@ main = do
       ns  = (map . map) read s :: [[ Int]]
       b   = concat . tail $ ns
       p   = mkPuzzle b
-      sol = solve (PQ.fromList [(dist p, p)])
+      sol = solve p
       
   print sol
 
