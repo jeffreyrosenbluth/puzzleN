@@ -9,10 +9,13 @@
 
 module Main where
 
-import           Data.Maybe           (mapMaybe, fromMaybe)
-import qualified Data.PQueue.Prio.Min as PQ
-import           Data.Vector          (Vector, (!), (//))
-import qualified Data.Vector          as V
+import           Data.List.Split                     (chunksOf)
+import           Data.Maybe                          (mapMaybe, fromMaybe)
+import qualified Data.PQueue.Prio.Min                as PQ
+import           Data.Vector                         (Vector, (!), (//))
+import qualified Data.Vector                         as V
+import           Diagrams.Prelude
+import           Diagrams.Backend.Rasterific.CmdLine
 import           System.Environment
 
 -- | The puzzle board is represented as a 1 dimensional vector of size
@@ -53,15 +56,15 @@ size b = round . sqrt . fromIntegral . V.length $ b
 
 -- | Manhattan distance of a tile with value v at position (i, j),
 --   for a game of dimension n.
-distance :: Int -> Int -> Int -> Int  -> Int
-distance v n i j = if v == 0 then 0 else rowDist + colDist
+manhattan :: Int -> Int -> Int -> Int  -> Int
+manhattan v n i j = if v == 0 then 0 else rowDist + colDist
   where
     rowDist = abs (i - ((v-1) `div` n))
     colDist = abs (j - ((v-1) `mod` n))
 
 -- | Manhattan distance of entire board.
 totalDist :: Board -> Int -> Int
-totalDist b n = sum [distance (b ! m2v n i j) n i j | i <- [0..n-1], j <- [0..n-1]]
+totalDist b n = sum [manhattan (b ! m2v n i j) n i j | i <- [0..n-1], j <- [0..n-1]]
 
 -- | Create a start state from a list of tiles.
 mkPuzzle :: [Int] -> Puzzle
@@ -123,18 +126,56 @@ solve p = go (PQ.fromList [(dist p, p)])
 
         -- The priority of a puzzle is the number of moves so far
         -- plus the manhattan distance.
-        ps  = zip [moves p + dist p | p <- ns] ns
+        ps  = zip [moves q + dist q | q <- ns] ns
         fr2 = foldr (uncurry PQ.insert) fr1 ps
 
-main = do
-  args <- getArgs
-  let file = head args
-  txt <- readFile file
+boards :: Puzzle -> [[Int]]
+boards p = map V.toList (reverse $ brds p)
+  where
+    brds q = case previous q of
+      Nothing -> [board q]
+      Just r  -> board q : brds r
 
-  let s   = map words $ lines txt
-      ns  = (map . map) read s :: [[ Int]]
-      p   = solve . mkPuzzle . concat . tail $ ns
-      
-  print p
+boardDia :: Int -> [Int] -> Diagram B R2
+boardDia n ns = bg lightgray
+              . frame 0.1 
+              . vcat' (with & sep .~ 0.05) 
+              . map (hcat' (with & sep .~ 0.05))
+              . (map . map) draw $ rows
+  where
+    rows = chunksOf n ns
+
+draw :: Int -> Diagram B R2
+draw s = text (label s) 
+       # fontSize (Normalized 0.12) 
+       # bold
+      <> roundedRect 1 1 0.2 
+       # fc darkseagreen
+       # lw thick
+  where
+    label 0 = ""
+    label n = show n
+
+dias :: Int -> [[Int]] -> [Diagram B R2]
+dias n ns = map (boardDia n) ns 
+
+times :: Int -> [Int]
+times n = replicate (n-1) 100 ++ [300]
+
+gifs :: Int -> [[Int]] -> [(Diagram B R2, Int)]
+gifs n ns = zip (dias n ns) (times . length $ ns)
+
+fromString :: String -> [[Int]]
+fromString s = (map . map) read ws
+  where ws = map words (lines s)
+
+main = do
+  txt <- readFile =<< getLine
+  let game = fromString txt
+      ([n], brd) = case game of
+        [] -> error "Invalid puzzle file"
+        x:xs -> (x, concat xs)
+  let p  = solve . mkPuzzle $ brd
+  mainWith $ gifs n (boards p) 
 
 
