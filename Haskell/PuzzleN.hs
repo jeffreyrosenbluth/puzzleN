@@ -54,10 +54,10 @@ size b = round . sqrt . fromIntegral . V.length $ b
 -- | Manhattan distance of a tile with value v at position (i, j),
 --   for a game of dimension n.
 distance :: Int -> Int -> Int -> Int  -> Int
-distance v n i j = if v == 0 then 0 else rdist + cdist
+distance v n i j = if v == 0 then 0 else rowDist + colDist
   where
-    rdist = abs (i - ((v-1) `div` n))
-    cdist = abs (j - ((v-1) `mod` n))
+    rowDist = abs (i - ((v-1) `div` n))
+    colDist = abs (j - ((v-1) `mod` n))
 
 -- | Manhattan distance of entire board.
 totalDist :: Board -> Int -> Int
@@ -105,11 +105,11 @@ neighbors :: Puzzle -> [Puzzle]
 neighbors p = mapMaybe (neighbor p) [North, East, South, West]
 
 solve :: Puzzle -> Puzzle
-solve p = solve' (PQ.fromList [(dist p, p)])
+solve p = go (PQ.fromList [(dist p, p)])
   where
-    solve' fr = if dist puzzle == 0 
-              then puzzle 
-              else solve' fr2
+    go fr = if dist puzzle == 0 
+            then puzzle 
+            else go fr2
       where
         -- Retrieve the game state with the lowest priority and remove it from
         -- the frontier.
@@ -123,7 +123,7 @@ solve p = solve' (PQ.fromList [(dist p, p)])
 
         -- The priority of a puzzle is the number of moves so far
         -- plus the manhattan distance.
-        ps = zip [moves p + dist p | p <- ns] ns
+        ps  = zip [moves p + dist p | p <- ns] ns
         fr2 = foldr (uncurry PQ.insert) fr1 ps
 
 main = do
@@ -133,10 +133,8 @@ main = do
 
   let s   = map words $ lines txt
       ns  = (map . map) read s :: [[ Int]]
-      b   = concat . tail $ ns
-      p   = mkPuzzle b
-      sol = solve p
+      p   = solve . mkPuzzle . concat . tail $ ns
       
-  print sol
+  print p
 
 
