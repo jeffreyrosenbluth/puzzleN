@@ -1,3 +1,12 @@
+-----------------------------------------------------------------------------
+-- Program     :  puzzleN
+-- Copyright   :  (c) 2014 Jeffrey Rosenbluth
+--
+-- Solve the generalized 8 puzzle using the A* aglorithm
+-- with manhattan distance heuristic.
+--
+-----------------------------------------------------------------------------
+
 module Main where
 
 import           Data.Maybe           (mapMaybe, fromMaybe)
@@ -6,21 +15,29 @@ import           Data.Vector          (Vector, (!), (//))
 import qualified Data.Vector          as V
 import           System.Environment
 
+-- | The puzzle board is represented as a 1 dimensional vector of size
+--   dim^2.
 type Board = Vector Int
 
+-- | The possible moves.
 data Direction = North | East | South | West
 
+-- | The game state inludes the board, the number of moves up until this
+--   point and a previous state (unless this it the start state). We
+--   also cache the dimiension of the board, the location of the blank
+--   tile and the manhattan distance to the goal state.
 data Puzzle = Puzzle 
-  { board :: Board
-  , dist  :: Int
-  , dim   :: Int 
-  , blank :: Int
-  , moves :: Int
-  , from  :: Maybe Puzzle } deriving (Show, Eq, Ord)
+  { board     :: Board
+  , dist      :: Int
+  , dim       :: Int 
+  , blank     :: Int
+  , moves     :: Int
+  , previous  :: Maybe Puzzle 
+  } deriving (Show, Eq, Ord)
 
-data Key = Key Int deriving (Eq, Ord)
-
-type Frontier = PQ.MinPQueue Key Puzzle
+-- | Territory to explore stored in a priority queue with priority
+--   equal to the moves made so far plus the manhattan distance.
+type Frontier = PQ.MinPQueue Int Puzzle
 
 -- Convert martrix indices to array index.
 m2v :: Int -> Int -> Int -> Int
@@ -34,17 +51,19 @@ v2m n i = (i `div` n, i `mod` n)
 size :: Board -> Int
 size b = round .sqrt . fromIntegral . V.length $ b
 
--- Manhattan distance of board b at cell (i, j).
+-- | Manhattan distance of a tile with value v at position (i, j).
+--   For a game of dimension n.
 distance :: Int -> Int -> Int -> Int  -> Int
 distance v n i j = if v == 0 then 0 else rdist + cdist
   where
     rdist = abs (i - ((v-1) `div` n))
     cdist = abs (j - ((v-1) `mod` n))
 
--- Manhattan distance of entire board.
+-- | Manhattan distance of entire board.
 totalDist :: Board -> Int -> Int
 totalDist b n = sum [distance (b ! m2v n i j) n i j | i <- [0..n-1], j <- [0..n-1]]
 
+-- | Create a start state from a list of tiles.
 mkPuzzle :: [Int] -> Puzzle
 mkPuzzle xs = Puzzle b d n z 0 Nothing
   where
@@ -53,12 +72,14 @@ mkPuzzle xs = Puzzle b d n z 0 Nothing
     d = totalDist b n
     z = fromMaybe (error "Invalid board - no blank cell") (V.elemIndex 0 b)
 
+-- | Update the game state after swithing the position of the blank
+--   and tile i j.
 update :: Puzzle -> Int -> Int -> Puzzle
 update p i j = p { board = b
                  , dist = totalDist b n
                  , blank = k
                  , moves = moves p + 1
-                 , from = Just p }
+                 , previous = Just p }
   where
     k = m2v n i j
     b = b' // [(blank p, b' ! k), (k, 0)]
@@ -79,16 +100,24 @@ neighbors :: Puzzle -> [Puzzle]
 neighbors p = mapMaybe (neighbor p) [North, East, South, West]
 
 solve :: Frontier -> Puzzle
-solve fr = if dist m == 0 then m else solve fr2
+solve fr = if dist puzzle == 0 
+           then puzzle 
+           else solve fr2
   where
-    ((_, m), fr1) = PQ.deleteFindMin fr
-    ms = case from m of
-      Nothing -> xs
-      Just n  -> filter (\x -> (board . snd $ x) /= board n) xs
-    xs = zip ks ns
-    ns = neighbors m
-    ks = map Key [moves p + dist p | p <- ns]
-    fr2 = foldr (uncurry PQ.insert) fr1 ms
+    -- Retrieve the game state with the lowest priority and remove it from
+    -- the frontier.
+    ((_, puzzle), fr1) = PQ.deleteFindMin fr
+
+    -- If the new board is the smae as the previous board then
+    -- do not add it to the queue since it has already been explored.
+    ns = case previous puzzle of
+      Nothing -> neighbors puzzle
+      Just n  -> filter (\x -> board x /= board n) (neighbors puzzle)
+
+    -- The priority of a puzzle is the number of moves so far
+    -- plus the manhattan distance.
+    ps = zip [moves p + dist p | p <- ns] ns
+    fr2 = foldr (uncurry PQ.insert) fr1 ps
 
 main = do
   args <- getArgs
@@ -99,7 +128,7 @@ main = do
       ns  = (map . map) read s :: [[ Int]]
       b   = concat . tail $ ns
       p   = mkPuzzle b
-      sol = solve (PQ.fromList [(Key (dist p), p)])
+      sol = solve (PQ.fromList [(dist p, p)])
       
   print sol
 
