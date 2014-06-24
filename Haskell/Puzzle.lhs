@@ -1,27 +1,25 @@
-Solving and animating the 15 puzzle with haskell
-================================================
-
 We all have our favorite mini projects that we like
 to implement when trying a new programming language.
-One of mine is a solver for the 15 puzzle. In case your not familiar with
-the 15 puzzle it\'s a classic game with 4 rows and 4 columns containing 15
-tiles labed 1-15 and one blank space. The object is to order the tiles from
+One of mine is a solver for the 15-puzzle. In case your not familiar with
+the 15-puzzle, it\'s a classic game with 4 rows and 4 columns containing 15
+tiles labled 1-15 and one blank space. The object is to order the tiles from
 1 to 15 by repeatedly choosing a tile to slide into the blank space.
-See the wikipedia article 15\-puzzle.
+See [15 puzzle](http://en.wikipedia.org/wiki/15_puzzlel).
+
+![45 move puzzle](puzzle.gif)
 
 One reason I like to code up a
-solver for the 15 puzzle is that the algorithm is a nice example of the
+solver for the 15-puzzle is that the algorithm is a nice example of the
 interplay between algorithms and data structures. In particular, we use the
 A\* algorithm which relies on a prioriy queue.
 
 Recently, I realized that: 
 
-1. The only programming language I use (when given a choice) is haskell.  
-2. For some reason I had never implemented a 15 puzzle solver in haskell. 
-3. It would be nice to animiate the solution using the diagrams EDSL. 
+- the only programming language I use (when given a choice) is haskell,
+- for some reason I had never implemented a 15-puzzle solver in haskell, 
+- it would be nice to animate the solution using the *diagrams* EDSL, 
 
-This blog post is a literate haskell file so that you can
-run the code if you choose. Lets get some imports out of the way.
+and hence this blog post was born. We start by getting the imports out of the way.
 
 > module Main where
 >
@@ -34,26 +32,35 @@ run the code if you choose. Lets get some imports out of the way.
 > import           Diagrams.Backend.Rasterific.CmdLine
 > import           System.Environment
 
-Lets assume we already have a solution to a particular puzzle and write the
-diagrams code to draw and animate it first. The solution takes the form 
+Creating the animated GIF
+-------------------------
+
+Lets write the *diagrams* code to draw and animate a solution assuming we 
+have already solved a puzzle. The solution takes the form 
 `[Board]` where `Board` is an matrix of tiles. Each tile is a number between
 1 and 15.
 
 > type Board = UArray (Int, Int) Int
 
-First we need to draw a `Board`, i.e convert it to a diagram.
-Our strategy is to map a function that draws each tile onto the board then
-concatenate the tile diagrams into a diagram of the puzzle board. Diagram\'s
-has built in functions for vertically and hoerizontally concatenating lists
-of diagrams so we convert the `Board` to a list.
+First we need to draw a single `Board`, i.e convert it to a diagram.
+Our strategy is to map a function that draws each tile onto the board, then
+concatenate the tile diagrams into a diagram of the puzzle board. *diagrams*
+has built in functions for vertically and horizontally concatenating lists
+of diagrams so we start by converting the `Board` to a list.
 
 > fromBoard :: Board -> [[Int]]
-> fromBoard b = [row i | i <- [0..n]]
+> fromBoard b = [row i | i <- [1..n]]
 >   where
->     row i = [b ! (i, j) | j <- [0..n]]
->     n = snd . snd . bounds $ b
+>     row i = [b ! (i, j) | j <- [1..n]]
+>     n = dim b
 
-Assuming we have a function `drawTile` that makes an number into
+The dimension of the game is the upper bound of the array since we are using
+1 as the starting indices for our array.
+
+> dim :: Board -> Int
+> dim = snd . snd . bounds 
+
+Assuming we have a function `drawTile` that makes a number into
 a tile diagrams we can now create a diagram from a game board.
 
 > boardDia :: Board -> Diagram B R2
@@ -76,14 +83,15 @@ And here is `drawTile`
 >            # fc darkred
 
 Now we need to assemble a bunch of board diagrams into a GIF.
-All we need to do is pass a list of diagrams and delay times to `mainWith`, 
-`[(Diagram B R2, Int)]`.
+All we need to do is pass a list of diagrams and delay times 
+`[(Diagram B R2, Int)]` to the `mainWith` function, choose a .gif file
+extension when we run the program and *diagrams* will make an animated GIF.
 
 > dias :: [Board] -> [Diagram B R2]
 > dias bs = map boardDia bs 
 
-We show each board for 1 second and pause for three seconds before starting
-looping.
+We show each board for 1 second and pause for 3 seconds before repeating
+the GIF loop.
 
 > times :: Int -> [Int]
 > times n = replicate (n-1) 100 ++ [300]
@@ -91,15 +99,19 @@ looping.
 > gifs :: [Board] -> [(Diagram B R2, Int)]
 > gifs bs = zip (dias bs) (times . length $ bs)
 
-> fromString :: String -> [[Int]]
-> fromString s = (map . map) read ws
->   where ws = map words (lines s)
+Here is an example main program that solves a puzzle read in from
+a text file. The format of the puzzle file has as first line a single integer
+representing the dimension of the puzzle and each additional line a string
+of integers representing a row of the starting puzzle board. For example the
+puzzle at the top of the post has file:
 
-Here is an example main program that solves a puzzle that is read in from
-a text file. The format is that the first line contains a single integer
-representing the dimension of the puzzle and each additional line is a string
-of integers representing a row of the starting puzzle board.
-Of course we still need to write, `solve`, `mkPuzzle`, and `boards`.
+    4
+     9  2  8  11  
+     0  5 13   7
+    15  1  4  10
+     3 14  6  12
+ 
+Of course we still need to write, `solve`, `mkGameState`, and `boards`.
 
 > main = do
 >   putStrLn "Enter the name of the file containing the puzzle specification: "
@@ -108,84 +120,94 @@ Of course we still need to write, `solve`, `mkPuzzle`, and `boards`.
 >       ([n], brd) = case game of
 >         [] -> error "Invalid puzzle file"
 >         x:xs -> (x, concat xs)
->   let p = solve . mkPuzzle n $ brd
+>   let p = solve . mkGameState n $ brd
 >   mainWith $ gifs (boards p) 
 
-We are going to search for a solution using the A\* algotihm.
+> fromString :: String -> [[Int]]
+> fromString s = (map . map) read ws
+>   where ws = map words (lines s)
+
+The A\* algorithm
+-----------------
+
+We are going to search for a solution using the A\* algorithm.
 We will keep track of the state of the game in an
-algebraic data type called `Puzzle`.
+algebraic data type called `GameState`.
 
 The game state inludes the board, the number of moves up until this
 point and a previous state (unless this it the start state). We
 also cache the location of the blank
 tile and the manhattan distance to the goal state; so that we only need
-to calculate this things once.
+to calculate these things once.
 
-Notice that the game state `Puzzle` recursively contains
-the game state that preceeded it, except for the start state whose `previous`
+Notice that `GameState` recursively contains
+the game state that preceeded it (wrapped in a `Maybe`) , except for the start 
+state whose `previous`
 field will contain `Nothing`. This will allow us recreate all of the intermediate
-boards from the final solved board so that we can animate the game. This 
-is what is done in the `boards` function.
+boards from the final solved board so that we can animate the game. We use
+the `boards` function to create the list containing each board from start to
+finish.
 
-> data Puzzle = Puzzle 
+> data GameState = GameState 
 >   { board     :: Board
 >   , dist      :: Int
 >   , blank     :: (Int, Int)
 >   , moves     :: Int
->   , previous  :: Maybe Puzzle 
+>   , previous  :: Maybe GameState 
 >   } deriving (Show, Eq, Ord)
 
-> dim :: Puzzle -> Int
-> dim = (+1) . snd . snd . bounds . board
 
-> boards :: Puzzle -> [Board]
+> boards :: GameState -> [Board]
 > boards p = reverse $ brds p
 >   where
 >     brds q = case previous q of
 >       Nothing -> [board q]
 >       Just r  -> board q : brds r
 
-
-
-
- Territory to explore stored in a priority queue with priority
- equal to the moves made so far plus the manhattan distance.
-
- The possible moves.
+The possible moves.
 
 > data Direction = North | East | South | West
->
-> type Frontier = PQ.MinPQueue Int Puzzle
 
-Manhattan distance of a tile with value v at position (i, j),
-for a game of dimension n.
+We create a priority queue `Frontier` whose priorities are the sum of the
+moves made so far to reach the game state and the manhattan distance to
+the goal state. This is a consistent heuristic function which guarantees
+that the solution we find will take the minimum number of moves. The initial
+`Frontier` contains only the start state. Then we recusively pop the minimum
+game state from the queue and check to see if it is the goal, if it is we
+are done, if not we calculate the states reachable by a legal game move 
+(`neighbors`) and add them to the queue. Here\'s the code.
+
+> type Frontier = PQ.MinPQueue Int GameState
+
+Manhattan distance of a tile with value `v` at position `(i, j)`,
+for a game of dimension `n`.
 
 > manhattan :: Int -> Int -> Int -> Int  -> Int
 > manhattan v n i j = if v == 0 then 0 else rowDist + colDist
 >   where
->     rowDist = abs (i - ((v-1) `div` n))
->     colDist = abs (j - ((v-1) `mod` n))
+>     rowDist = abs (i-1 - ((v-1) `div` n))
+>     colDist = abs (j-1 - ((v-1) `mod` n))
 
- Manhattan distance of entire board.
+Manhattan distance of entire board.
 
 > totalDist :: Board -> Int
-> totalDist b = sum [manhattan (b ! (i, j)) n i j | i <- [0..n-1], j <- [0..n-1]]
->   where n = (+1) . snd . snd . bounds $ b
+> totalDist b = sum [manhattan (b ! (i, j)) n i j | i <- [1..n], j <- [1..n]]
+>   where n = dim b
 
- Create a start state from a list of tiles.
+Create a start state from a list of tiles.
 
-> mkPuzzle :: Int -> [Int] -> Puzzle
-> mkPuzzle n xs = Puzzle b d z 0 Nothing
+> mkGameState :: Int -> [Int] -> GameState
+> mkGameState n xs = GameState b d z 0 Nothing
 >   where
->     b = listArray ((0, 0), (n-1, n-1)) xs
+>     b = listArray ((1, 1), (n, n)) xs
 >     d = totalDist b
 >     Just z' = elemIndex 0 xs
->     z = (z' `div` n, z' `mod` n)
+>     z = (1 + z' `div` n, 1 + z' `mod` n)
 
- Update the game state after swithing the position of the blank
- and tile i j.
+Update the game state after switching the position of the blank
+and tile `(i, j)`.
 
-> update :: Puzzle -> Int -> Int -> Puzzle
+> update :: GameState -> Int -> Int -> GameState
 > update p i j = p { board = b
 >                  , dist = totalDist b
 >                  , blank = (i, j)
@@ -195,45 +217,52 @@ for a game of dimension n.
 >     b = b' // [(blank p, b' ! (i, j)), ((i, j), 0)]
 >     b' = board p
 
- Find the the board that can be reached from the current state 
- by moving in the specified direction, being careful not to 
- move off the board.
+Find the the board that can be reached from the current state 
+by moving in the specified direction, being careful not to 
+move off the board.
 
-> neighbor :: Puzzle -> Direction -> Maybe Puzzle
+> neighbor :: GameState -> Direction -> Maybe GameState
 > neighbor p dir = case dir of
->   North -> if i <= 0   then Nothing else Just $ update p (i-1) j
->   East  -> if j >= n-1 then Nothing else Just $ update p i (j+1)
->   South -> if i >= n-1 then Nothing else Just $ update p (i+1) j
->   West  -> if j <= 0   then Nothing else Just $ update p i (j-1)
+>   North -> if i <= 1 then Nothing else Just $ update p (i-1) j
+>   East  -> if j >= n then Nothing else Just $ update p i (j+1)
+>   South -> if i >= n then Nothing else Just $ update p (i+1) j
+>   West  -> if j <= 1 then Nothing else Just $ update p i (j-1)
 >   where
 >     (i, j) = blank p
->     n = dim p
+>     n = dim . board $ p
 
- All of the states that can be reached in one move from the
- current state.
+All of the states that can be reached in one move from the
+current state.
 
-> neighbors :: Puzzle -> [Puzzle]
+> neighbors :: GameState -> [GameState]
 > neighbors p = mapMaybe (neighbor p) [North, East, South, West]
 
-> solve :: Puzzle -> Puzzle
+Finally, solve the puzzle.
+
+> solve :: GameState -> GameState
 > solve p = go (PQ.fromList [(dist p, p)])
 >   where
 >     go fr = if dist puzzle == 0 
 >             then puzzle 
 >             else go fr2
 >       where
->         -- Retrieve the game state with the lowest priority and remove it from
->         -- the frontier.
+>         -- Retrieve the game state with the lowest priority
+>         -- and remove it from the frontier.
 >         ((_, puzzle), fr1) = PQ.deleteFindMin fr
-
+>
 >         -- If the new board is the smae as the previous board then
->         -- do not add it to the queue since it has already been explored.
+>         -- do not add it to the queue since it has already been
+>         -- explored.
 >         ns = case previous puzzle of
 >           Nothing -> neighbors puzzle
->           Just n  -> filter (\x -> board x /= board n) (neighbors puzzle)
-
+>           Just n  -> filter (\x -> board x /= board n) 
+>                             (neighbors puzzle)
+>
 >         -- The priority of a puzzle is the number of moves so far
 >         -- plus the manhattan distance.
 >         ps  = zip [moves q + dist q | q <- ns] ns
 >         fr2 = foldr (uncurry PQ.insert) fr1 ps
 
+You can find more puzzles in my github repo:
+[puzzles](https://github.com/jeffreyrosenbluth/puzzleN/tree/master/puzzles).
+Happy solving !
